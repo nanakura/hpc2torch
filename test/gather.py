@@ -19,7 +19,7 @@ def gather(rank, axis, inputTensor, indexTensor):
     return outTensor
 def test(inputShape, indexShape, axis, test_dtype, device):
     print(
-        f"Testing Softmax on {device} with x_shape:{inputShape} , indice_shape:{indexShape}, axis:{axis} ,dtype:{test_dtype}"
+        f"Testing Gather on {device} with x_shape:{inputShape} , indice_shape:{indexShape}, axis:{axis} ,dtype:{test_dtype}"
     )
     inputTensor = torch.rand(inputShape, device=device, dtype=test_dtype)
 
@@ -37,11 +37,31 @@ def test(inputShape, indexShape, axis, test_dtype, device):
     if test_dtype == torch.float32:
         if device == "cuda":
             torch_gather_time = performance.CudaProfile((gather, (rank, axis, inputTensor, indexTensor)))
-            custom_gather_time = 0
+            lib.gather_cuda_f32.argtypes = [
+                ctypes.POINTER(ctypes.c_void_p),
+                ctypes.POINTER(ctypes.c_void_p),
+                ctypes.POINTER(ctypes.c_void_p),
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+            ]
+
+            custom_gather_time = performance.CudaProfile((lib.gather_cuda_f32, (input_ptr, index_ptr, output_ptr, axis, inputShape[axis], outTensor.numel(), indexTensor.numel())))
     if test_dtype == torch.float16:
         if device == "cuda":
             torch_gather_time = performance.CudaProfile((gather, (rank, axis, inputTensor, indexTensor)))
-            custom_gather_time = 0
+
+            lib.gather_cuda_f16.argtypes = [
+                ctypes.POINTER(ctypes.c_void_p),
+                ctypes.POINTER(ctypes.c_void_p),
+                ctypes.POINTER(ctypes.c_void_p),
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+            ]
+            custom_gather_time =  performance.CudaProfile((lib.gather_cuda_f16, (input_ptr, index_ptr, output_ptr, axis, inputShape[axis], outTensor.numel(), indexTensor.numel())))
     performance.logBenchmark(torch_gather_time, custom_gather_time)
 
     tmpa = outTensor.to('cpu').numpy().flatten()
@@ -54,7 +74,8 @@ def test(inputShape, indexShape, axis, test_dtype, device):
 
     print("absolute error:%.4e"%(atol))
     print("relative error:%.4e"%(rtol))
-parser = argparse.ArgumentParser(description="Test softmax on different devices.")
+
+parser = argparse.ArgumentParser(description="Test gather on different devices.")
 parser.add_argument('--device', choices=['cpu', 'cuda', 'mlu'], required=True, help="Device to run the tests on.")
 args = parser.parse_args()    
 test_cases = [
